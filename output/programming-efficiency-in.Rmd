@@ -1,7 +1,7 @@
 ---
 title: "Programming Efficiency in R"
 author: "Sebastian Marin"
-date: "`r Sys.Date()`"
+date: " `r Sys.Date()` "
 output: 
   html_document:
     theme: lumen
@@ -436,7 +436,7 @@ Let's assign the new data to a data frame object to compare differences saving a
 ### BFI data
 ```{r}
 set.seed(9201994)
-bfi_df <-anMC::mvrnormArma(1e6, mu, cov_m, 0) %>% 
+bfi_df <- anMC::mvrnormArma(1e6, mu, cov_m, 0) %>% 
   t() %>% #transpose
   as.data.frame() #get data.frame
 names(bfi_df) <- names(bfi_trim)
