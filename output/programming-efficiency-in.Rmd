@@ -15,6 +15,7 @@ pacman::p_load(tidyverse, psych, DT, doParallel, data.table, rbenchmark, benchma
 opts_chunk$set(echo=T,cache=F,prompt=F,tidy=T,comment=NA,message=F,warning=F)
 ``` 
 
+
 <br />
 
 <br />
@@ -268,7 +269,7 @@ df
 
 Tibbles are strict about subsetting. If you try to access a variable that does not exist, you’ll get an error.
 
-```{r}
+```{r, error=T}
 tbl$letter
 ```
 
@@ -374,22 +375,6 @@ benchmark(
 ## data.table
 
 `data.table` is typically thought of as an alternative to `dplyr`. It values speed over intuitive and accessible programming. You can learn more at [datatable-intro](https://cran.r-project.org/web/packages/data.table/vignettes/datatable-intro.html), [datatable-reshape]() and [datatable-reference-semantics](https://cran.r-project.org/web/packages/data.table/vignettes/datatable-reference-semantics.html). 
-
-
-
-<br />
-
-<br />
-
-
-
-# Parallelization 
-
-
-
-
-
-
 
 
 <br />
@@ -673,36 +658,66 @@ Yet, given 25 million rows, we would need to calculate 25 effect sizes at a samp
 ### Parallelization
 A better way to approach the problem is to *parallelize* across all cores. Parallelization is the act of designing a computer program or system to process data in parallel. (You can think of it as hyperthreading across physical cores instead of within cores). Normally, computer programs compute data serially computing one thing at a time. If we parallelize, we can speed up compute by breaking the problem down into smaller pieces to be independently solved simultaneously. 
 
-For this example, we will split the data set into a list, where every element of that list is an item. Then, we can loop through the list using `foreach` and the `%dopar%` operator to run a for loop in parallel. We use 25k rows this time. 
+For this example, we will split the data set into a list, where every element of that list is an item. Then, we can loop through the list using `foreach` and the `%dopar%` operator to run a for loop in parallel. For data sets with smaller cases, we don't see the performance gains. For larger data sets, we do.
 
 ```{r}
-bfi_tbl_long <-  bfi_tbl_group %>% slice(1:1000) #since it's still grouped  we can get the first 1000 rows per item
+bfi_tbl_long <-  bfi_tbl_group %>% slice(1:1000) #25k
 
 bfi_ls <- split(
   bfi_tbl_long[, !names(bfi_tbl_long) == "item" ],  #split into list but remove the item variable
   bfi_tbl_long$item #split on item variable
 ) 
+
+system.time({
+  rstatix::cohens_d(bfi_tbl_long, score ~ gender)
+})
+
+registerDoParallel(detectCores() - 1) #register the cluster to run in parallel
+system.time({
+    d_gender <- 
+    foreach(i=1:25) %dopar% {
+      rstatix::cohens_d(bfi_ls[[i]], score ~ gender) 
+    }
+})
+registerDoSEQ() #register cores to compute sequentially 
 ```
-
-
 ```{r}
-cl <- makeCluster(detectCores() - 1) #make a cluster but leave one core for other things like email
-registerDoParallel(cl) #register the cluster to run in parallel
+bfi_tbl_long <-  bfi_tbl_group %>% slice(1:1e5)  #2.5 mil (2500k)
 
-d_gender <- 
-  foreach(i=1:25, .multicombine = T) %dopar% { #multicombine=T combines the output into a data frame
-    rstatix::cohens_d(bfi_ls[[i]], score ~ gender) 
-  }
+bfi_ls <- split(
+  bfi_tbl_long[, !names(bfi_tbl_long) == "item" ],  #split into list but remove the item variable
+  bfi_tbl_long$item #split on item variable
+) 
 
-stopImplicitCluster() #stop cluster
+system.time({
+  rstatix::cohens_d(bfi_tbl_long, score ~ gender)
+})
+
+registerDoParallel(detectCores() - 1) #register the cluster to run in parallel
+system.time({
+    d_gender <- 
+    foreach(i=1:25) %dopar% {
+      rstatix::cohens_d(bfi_ls[[i]], score ~ gender) 
+    }
+})
 registerDoSEQ() #register cores to compute sequentially 
 ```
 
 
+To view the results, we can bind the rows across the list if they hold the same column values. There are two ways we can do this: `dplyr::bind_rows()` or `data.table::rbindList()`. 
+Both yield the same output, but `rbindList()` is faster. However, it coerces to a `data.table` object. If we want a tibble, we will have to manually transform, which is still faster than `bind_rows()`. 
+```{r}
+benchmark(
+  dplyr::bind_rows(d_gender),
+  data.table::rbindlist(d_gender) %>% as_tibble, 
+  
+  replications = 10, 
+  columns = c("test","elapsed"),
+  order = "elapsed"
+)
+```
 
 
 ```{r}
-## Regression
-
+rbindlist(d_gender) %>% as_tibble()
 ```
-
