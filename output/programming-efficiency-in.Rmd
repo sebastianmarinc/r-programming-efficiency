@@ -1,0 +1,506 @@
+---
+title: "programming efficiency in R"
+author: "sebastian marin"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: lumen
+    toc: yes
+
+---
+
+```{r, message=F, warning=F, include = F}
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) #comment out when knitting the notebook
+pacman::p_load(tidyverse, psych, DT, doParallel, data.table, rbenchmark, benchmarkme, microbenchmark, vroom, disk.frame, knitr)
+opts_chunk$set(echo=T,cache=F,prompt=F,tidy=T,comment=NA,message=F,warning=F)
+``` 
+
+<br />
+
+<br />
+
+
+# Benchmarking
+
+There are several packages for benchmarking your machine and your code.
+
+- [microbenchmark](https://cran.r-project.org/web/packages/microbenchmark/microbenchmark.pdf)
+- [rbenchmark](https://cran.r-project.org/web/packages/rbenchmark/rbenchmark.pdf)
+- [benchmarkme](https://cran.r-project.org/web/packages/benchmarkme/benchmarkme.pdf)
+- and there's always base R's `system.time()`
+
+## How fast is my machine? 
+
+To maximize computational speed, first we have to know how long our code takes to run. 
+
+Let's get an idea of local specs and compute speed. 
+
+What version of R are you using? 
+```{r}
+# get major and minor version and paste together
+paste0(version$major, ".", version$minor)
+```
+
+We should have the newest verion of R (`r paste0(version$major, ".", version$minor)`). Having the latest version of R is one of the easiest ways to optimize code. New versions often provide speed boosts for commonly used functions. 
+
+Having a faster computer might also make you more productive. To justify how you can save time using a faster computer, you will need some numbers. We can benchmark the performance of our computer using the [`benchmarkme` package](https://www.r-bloggers.com/2019/01/benchmarkme-new-version/). 
+First, let's see what machine we're working with. 
+
+```{r}
+# benchmarkme  should already be loaded in your global environment
+paste("RAM:", disk.frame::df_ram_size(), "GB") #how much RAM are you working with?
+paste("CPUs:", benchmarkme::get_cpu()[3]) #how many logical processors do you have? 
+```
+You'll notice that we have more logical cores than physical cores at our disposal. This is due to hyperthreading. 
+
+You can run a set of standardized benchmarks and compare your results to users who have uploaded their performance results. The `benchmark_io` function allows outputs the time it takes to read in data depending on its size (units = megabtyes). Let's get performance for writing and reading a 50MB file and plot the results.
+```{r}
+write_read_bench <- benchmark_io(size=50) #read and write benchmark
+plot(write_read_bench) #plot results
+upload_results(write_read_bench) #upload results for benchmark tracking
+```
+
+For general benchmarking tests, use `benchmark_std` to see how your machine deals with handling data. 
+```{r}
+std_bench <- benchmark_std() #benchmark matrix manipulation, calculation
+plot(std_bench) #plot results
+upload_results(std_bench) #upload results for benchmark tracking
+```
+
+## Benchmarking different read and write functions
+
+There are different ways to write and read data in R. Let's create some data and test out read/write functions using: 
+
+- `saveRDS()` and `readRDS()` functions in R
+- `write.csv()` and `read.csv()` functions in the `utils` package
+- `write_csv()` and `read_csv()` functions in the `readr` package
+- `fwrite()` and `fread()` functions in the `data.table` package
+- `vroom_write()` and `vroom()` functions in the `vroom` package
+
+Let's write a function that creates some random data and assign them to a data frame object. 
+
+```{r}
+get_random_df <- function(n_elements, ncol, min = 0, max = 1, seed = 42) {
+  seed <- set.seed(seed)
+  n <- n_elements #number of elements in a vector
+  x <- runif(n, min = min, max = max) #random vector of real numbers
+  x <- matrix(x, ncol=ncol)
+  x <- as.data.frame(x)
+  return(x)
+}
+
+n <- 1e5
+col <- 100
+data <- get_random_df(n_elements = n, ncol = col)
+```
+
+
+Let's benchmark various functions for saving data frames using `rbenchmark::benchmark`. We will be saving as RDS and .csv files. 
+
+
+```{r}
+benchmark(
+  rds = saveRDS(data, "../data/data.rds"),
+  utils = write.csv(data, "../data/data_utils.csv"),
+  readr = write_csv(data, "../data/data_readr.csv"),
+  data.table = fwrite(data,"../data/data_dt.csv"), 
+  vroom = vroom_write(data, "../data/data_vroom.csv"),
+  
+  replications = 1,
+  columns = c('test', 'elapsed'),
+  order = 'elapsed'
+)
+```
+
+```{r}
+benchmark(
+  rds = readRDS("../data/data.rds"),
+  utils = read.csv("../data/data_utils.csv"),
+  readr = read_csv("../data/data_readr.csv"),
+  data.table = fread("../data/data_dt.csv"), 
+  vroom = vroom("../data/data_vroom.csv"),
+  
+  replications = 1,
+  columns = c('test', 'elapsed'),
+  order = 'elapsed'
+)
+```
+
+Overall, if we want to use a .csv file format, `data.table::fread()` and `data.table::fwrite()` functions are the way to go. If we want to use a flexible and fast framework to store any R object (as opposed to just data frames), we should use `saveRDS()`. 
+
+<br />
+
+<br />
+
+
+# Efficient programming
+## Memory allocation 
+
+Since R uses RAM automatically, we have to be careful with memory allocation. It's important to **vectorize** whenever possible. An efficient method is to instantiate empty vectors and then fill it with values later on.  A good tip is to never grow a vector. 
+
+Below, we see different ways to creating a vector. (This example was taken from section 3.2.1 of [Efficient R Programming](https://csgillespie.github.io/efficientR/).)
+
+```{r}
+# this example was taken from section 3.2.1 of Efficient R Programming (2021)
+
+n <- 1000
+
+method1 = function(n) {
+  vec = NULL #or vec = c()
+  for (i in seq_len(n))
+    vec = c(vec, i)
+  vec
+}
+
+method2 = function(n) {
+  vec = numeric(n)
+  for (i in seq_len(n))
+    vec[i] = i
+  vec
+}
+
+method3 = function(n) seq_len(n)
+
+
+benchmark(
+  method1(n), method2(n), method3(n),
+  
+  replications = 100,
+  columns = c('test', 'elapsed'),
+  order = 'elapsed'
+)
+```
+
+## The *apply family
+
+- `apply` is generic: applies a function to a rows or columns of a matrix (i.e., to dimensions of an array)
+- should not be used for data frames since it tries to coerce to matrix first
+- `lapply` is a list apply which acts on a list or vector and returns a list.
+- `sapply` is a simple lapply (function defaults to returning a vector or matrix when possible)
+- `vapply` is a verified apply (allows the return object type to be prespecified)
+
+
+`apply` can be used for 2D arrays (i.e., matrix) and 3D arrays
+```{r}
+sum_row <- apply(data, 1, sum) #applies sum to rows
+sum_col <- apply(data, 2, sum) #applies sum to rows
+identical(sum_row, rowSums(data))
+identical(sum_row, rowSums(data))
+```
+
+```{r}
+array_3D <- array(seq(1e4), dim = c(4,4,2))
+apply(array_3D, 1, sum) #apply sum across 2nd and 3rd dimension
+apply(array_3D, c(1,2), sum) # apply sum across across 3rd dimension
+
+```
+`lapply` is useful for lists. Say we want to apply a function per level of a factor variable. We can split the data by factor level, store the data as a list object, run the function, and combine the results again using `dplyr::bind_rows()`
+
+```{r}
+data$education <- 
+  c("high_school","college", "masters", "phd") %>% #get a vector of edu level
+  rep(., times = nrow(data)/4 ) %>% #repeat the vector for number of rows in the data divided by 4 since there's 4 levels 
+  sample(.) #takes a random sample of the vector, thereby randomizing it
+
+data_ls = split(data, data$education) #split the data into a list by edu level
+#lapply(data_ls, sum) #warning if we do this because there's a character vector edu still in the data
+
+data_ls <- lapply(data_ls, function(x) x[-length(x)]) #since we know the position of the education variable is the max number of column, we can call length to get the number of columns and drop the last one
+
+top_group <- function(x) {
+  composite <- rowSums(x)
+  bin <- quantile(composite)
+  keep <- which(composite > bin["75%"])
+  x <- x[keep, ]
+  return(x)
+}
+
+data_ls_top <- lapply(data_ls, top_group)
+data_top <- bind_rows(data_ls_top , .id = "education")
+data_top
+
+```
+
+
+```{r}
+
+```
+
+
+<br />
+
+<br />
+
+
+# Tidyverse, data.table, and base R
+
+Time spent processing your data at the beginning of projects can save time in the long run. We will walk through various ways to process data efficiently, both in terms of programming and algorithmic. For example, packages in `tidyverse` provide ways to efficiently print results and work with data. Specificaly, the `dplyr` package provides a sufficiently quick yet easy way to process data, and the raw speed of `data.table` is useful for wrangling large data sets. Also, the essential `%>%` (pronounced "pipe") operator can clarify complex wrangling processes. 
+
+## Tibbles
+
+
+
+
+
+
+<br />
+
+<br />
+
+
+
+# Parallelization 
+
+
+
+
+
+
+
+
+<br />
+
+<br />
+
+
+# Example: Big-Five Inventory data
+
+## Simulating more BFI data
+
+If we want to simulate data with a multivariate normal distribution, we're going to need means, SDs, and the covariance matrix. Let's use the BFI data set from the `psych` package. To learn more about the BFI data set, run `?psych::bfi`. 
+
+
+```{r}
+rm(list = ls()) #clear the global environment
+
+data(bfi) #get data
+glimpse(bfi) #take a look at the data structure using glimpse from the tibble package
+bfi <- bfi[complete.cases(bfi),] #drop cases with at least 1 missing value 
+bfi_trim <- bfi %>% select(-gender, -age, -education) #or subset(bfi, select= -c(gender, age, education)) to drop gender, age, edu columns 
+glimpse(bfi_trim) #check the structure again to compare
+
+mu <- colMeans(bfi_trim) #get variable means
+sd <- apply(bfi_trim, 2, sd) #get variable SDs
+cor_m <- cor(bfi_trim) #get correlation matrix
+cov_m <- sd %*% t(sd) * cor_m #get covariance matrix
+```
+
+Simulating data can take awhile, especially at larger sample sizes. We can simulate multivariate normal data by using `MASS::mvrnorm()`. Let's also checkout another function called `anMC::mvrnormArma()` to compare speed. 
+
+```{r}
+set.seed(9201994)
+benchmark(
+  MASS::mvrnorm(1e6, mu, cov_m, empirical=T),
+  anMC::mvrnormArma(1e6, mu, cov_m, 0),
+  
+  replications = 1,
+  columns = c('test', 'elapsed'),
+  order = 'elapsed'
+) #benchmarking simulating 1mil cases of the sampled data set 
+```
+
+We can clearly see from the output above that `mvrnormArma()` is (~6x) faster. Why? Because it calls C++ on the backend to create the simulated data. 
+
+Let's assign the new data to a data frame object to compare differences saving and loading data. Matrices are typically faster to work with, but IO psychologist typically work with tabular data, so we will be using data frames, tibbles, or data tables. Let's start with the most common: data frames. We should also add back in our categorical variables one vector at a time (at random).  
+
+### BFI data
+```{r}
+set.seed(9201994)
+bfi_df <- as.data.frame( t(anMC::mvrnormArma(1e6, mu, cov_m, 0)) )
+names(bfi_df) <- names(bfi_trim)
+```
+
+### Gender
+```{r}
+# let's keep things proportional 
+gender <- round(table(bfi$gender)/nrow(bfi), digits = 5) #gender proportion
+gender #view gender
+
+n <- length(gender)
+genders <- as.numeric(names(gender)) 
+gender_vec <- c()
+
+microbenchmark(times = 10, unit = "s",
+               # growing a vector
+               gender_vec_grow =
+                 for(i in 1:n) {
+                   gender_vec <- c(gender_vec, rep(genders[i], 1e6 * gender[i]))
+                 }, 
+               # vectorized
+               gender_vec = 
+                 rep(genders[1:n], 1e6 * gender[1:n]) 
+)
+
+gender_vec <- rep(genders[1:n], 1e6 * gender[1:n])
+bfi_df$gender <- sample(gender_vec) #assigning proportions to gender vector on bfi_df. adding sample randomizes the order of the vector
+```
+
+### Age
+```{r}
+# let's keep things proportional 
+age <- round(table(bfi$age)/nrow(bfi), digits = 5)
+age #view age proportions
+age_vec <- vector()
+
+n <- length(age)
+ages <- as.numeric(names(age)) 
+age_vec <- rep(ages[1:n], 1e6 * age[1:n])
+bfi_df$age <- sample(age_vec)
+
+```
+
+### Education
+```{r}
+# let's keep things proportional 
+education <- round(table(bfi$education)/nrow(bfi), digits = 5)
+education #view education proportions 
+education_vec <- c()
+
+n <- length(education)
+educations <- as.numeric(names(education)) 
+education_vec <- rep(educations[1:n], 1e6 * education[1:n])
+bfi_df$education <- sample(education_vec)
+
+```
+
+Every time you manipulate the data frame, check the data before proceeding so that you can see if you've made any mistakes.  Let's see what the final data set looks like. 
+```{r}
+glimpse(bfi_df) #always check your data after manipulating the data frame before proceeding
+```
+
+
+Earlier, we discovered that RDS and `data.table` functions are the fastest way to save and load data. Saving RDS objects is the most flexible way to write out and read in data wihtout compromising performance, whereas `fwrite()` and `fread` functions were the fastest in terms of raw speed. Let's compare these two approaches using the simulated BFI data. 
+
+```{r}
+benchmark(
+  saveRDS(bfi_df, "../data/bfi_df.rds"),
+  fwrite(bfi_df,"../data/bfi_df_dt.csv"), 
+  
+  replications = 1,
+  columns = c('test', 'elapsed'),
+  order = 'elapsed'
+)
+```
+
+```{r}
+benchmark(
+  readRDS("../data/bfi_df.rds"),
+  fread("../data/bfi_df_dt.csv"), 
+  
+  replications = 1,
+  columns = c('test', 'elapsed'),
+  order = 'elapsed'
+)
+```
+
+
+## Scoring items 
+
+We can make a list of keys on how to score individual items/variables. Once we obtain item keys, we can score the items on a variety of specifications (e.g., transforming the data on minimum and maximum item values). Run `?psych::scoreItems()` for more information. 
+
+```{r}
+keys.list <- list(
+  agree = c("-A1", paste0("A", 2:5)),
+  conscientious = c(paste0("C",1:3), "-C4", "-C5"),
+  extraversion = c("-E1", "-E2", paste0("E", 3:5)),
+  neuroticism = paste0("N",1:5), 
+  openness = c("O1", "-O2", "O3", "O4", "-O5")
+)
+bfi_scored <- scoreItems(keys.list, bfi_df[1:25])
+bfi_scored
+
+```
+
+## Fast descriptives 
+
+Let's get summary stats and compare performance by common descriptives functions. 
+
+```{r}
+pacman::p_load(Hmisc, pastecs, rstatix)
+
+benchmark(
+  hmisc = Hmisc::describe(bfi_df),
+  psych = psych::describe(bfi_df),
+  fpsych = psych::describe(bfi_df, fast=T),
+  pastecs = pastecs::stat.desc(bfi_df),
+  rstatix = rstatix::get_summary_stats(bfi_df),
+  
+  replications = 1,
+  columns = c('test', 'elapsed'),
+  order = 'elapsed'
+)
+
+bfi_df_summary <- psych::describe(bfi_df, fast=T)
+bfi_df_summary
+```
+We can see that the `psych` package performs the best. 
+
+Let's get summary stats by group and compare performance by function. We will use the pipeable [`rstatix` package](https://rpkgs.datanovia.com/rstatix/]) that implements commonly used statistical tests with great efficiency. It's easy to use and intuitive if you are familiar with the `tidyverse` framework. 
+
+First let's drop the age column. We only want to work with age and eduaction for now. Let's compare performance between subsetting in base R and using `dplyr::select()`.
+```{r}
+microbenchmark(unit='s',
+               subset(bfi_df, select= -age),
+               bfi_df[-which(names(bfi_df)=="age")] ,
+               bfi_df %>% select(-age)
+)
+```
+
+Indexing using brackets is typically faster than `tidyverse`, but the code is not as accessible. This is a common trade off between the `tidyverse` approach and other approaches. For now, let's use bracket notation to get the data set. Then, let's compare the performance of different functions on group comparisons by gender and education.  
+
+```{r}
+bfi_group <- bfi_df[-which(names(bfi_df)=="age")]
+
+benchmark(
+  psych_describeBy = psych::describeBy(bfi_group[1:25], list(bfi_group$gender, bfi_group$education), mat=T),
+  rstatix_groupby = bfi_group %>% group_by(gender, education) %>% get_summary_stats(), #example of piping a chain of 2 functions
+  
+  replications = 1,
+  columns = c('test', 'elapsed'),
+  order = 'elapsed'
+)
+
+```
+
+Although overall summary statistics using the `psych` package is faster than using `rstatix`, we can see that when obtaining summary statistics after the data are _grouped_, the opposite is true. 
+
+```{r}
+bfi_summary_stats_group <- bfi_group %>% group_by(gender, education) %>% get_summary_stats()
+bfi_summary_stats_group
+```
+
+
+
+## Item analysis
+
+```{r}
+# dich <- function(variable, categories) {
+#   midpoint <- categories / 2
+#   even <- as.logical(ifelse((midpoint - trunc(midpoint)) == 0,"TRUE","FALSE"))
+#   midpoint <- ifelse(even==T,midpoint, midpoint + .5)
+#   if(even==F) variable[variable==midpoint] <- NA
+#   variable <- ifelse(variable < midpoint, 0, 1)
+# }
+
+# pacman::p_load(CTT)
+# itemAnalysis(bfi_df)
+```
+
+
+```{r}
+# bfi_plot <- pairs.panels(bfi_clean)
+# 
+# benchmark 
+# memoise::memoise(bfi_plot)
+
+```
+
+
+## Fast group differences 
+
+```{r}
+
+
+```
+
+## Fast factor analysis 
