@@ -10,7 +10,7 @@ output:
 ---
 
 ```{r, message=F, warning=F, include = F}
-#setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) #comment out when knitting the notebook
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) #comment out when knitting the notebook
 
 pacman::p_load(
   tidyverse, psych, DT, doParallel, data.table, rbenchmark, benchmarkme, microbenchmark, vroom, disk.frame, knitr
@@ -59,6 +59,7 @@ paste("CPUs:", benchmarkme::get_cpu()[3]) #how many logical processors do you ha
 You'll notice that we have more logical cores than physical cores at our disposal. This is due to hyperthreading. 
 
 You can run a set of standardized benchmarks and compare your results to users who have uploaded their performance results. The `benchmark_io` function allows outputs the time it takes to read in data depending on its size (units = megabytes). Let's get performance for writing and reading a 50MB file and plot the results.
+
 ```{r}
 write_read_bench <- benchmark_io( size = 5 ) #read and write benchmark
 plot(write_read_bench) #plot results
@@ -106,7 +107,7 @@ Let's benchmark various functions for saving data frames using `rbenchmark::benc
 
 
 ```{r}
-benchmark(
+rbenchmark::benchmark(
   rds = saveRDS(data, "../data/data.rds"),
   utils = write.csv(data, "../data/data_utils.csv"),
   readr = write_csv(data, "../data/data_readr.csv"),
@@ -186,7 +187,7 @@ benchmark(
 sum_row <- apply(data, 1, sum) #applies sum to rows
 sum_col <- apply(data, 2, sum) #applies sum to rows
 identical(sum_row, rowSums(data))
-identical(sum_row, rowSums(data))
+identical(sum_col, colSums(data))
 ```
 
 ```{r}
@@ -201,7 +202,7 @@ apply(array_3D, c(1,2), sum) # apply sum across across 3rd dimension
 ```{r}
 data$education <- 
   c("high_school","college", "masters", "phd") %>% #get a vector of edu level
-  rep(., times = nrow(data)/4 ) %>% #repeat the vector for number of rows in the data divided by 4 since there's 4 levels
+  rep(., times = nrow(data)/length(.) ) %>% #repeat the vector for number of rows in the data divided by 4 since there's 4 levels
   sample(.) #takes a random sample of the vector, thereby randomizing it
 
 data_ls <- split(data, data$education) #split the data into a list by edu level
@@ -405,9 +406,10 @@ rm(list = ls()) #clear the global environment
 
 data(bfi) #get data
 glimpse(bfi) #take a look at the data structure using glimpse from the tibble package
-bfi <- bfi[complete.cases(bfi),] #drop cases with at least 1 missing value 
+bfi <- bfi[complete.cases(bfi), ] #drop cases with at least 1 missing value 
 bfi_trim <- bfi %>% select(-gender, -age, -education) #or subset(bfi, select= -c(gender, age, education)) to drop gender, age, edu columns 
 glimpse(bfi_trim) #check the structure again to compare
+str(bfi_trim)
 
 mu <- colMeans(bfi_trim) #get variable means
 sd <- apply(bfi_trim, 2, sd) #get variable SDs
@@ -440,6 +442,7 @@ bfi_df <- anMC::mvrnormArma(1e6, mu, cov_m, 0) %>%
   t() %>% #transpose
   as.data.frame() #get data.frame
 names(bfi_df) <- names(bfi_trim)
+glimpse(bfi_df)
 ```
 
 ### Gender
