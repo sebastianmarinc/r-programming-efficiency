@@ -177,7 +177,7 @@ benchmark(
 ## The *apply family
 
 - `apply()` is generic: applies a function to a rows or columns of a matrix (i.e., to dimensions of an array)
-  - should not be used for data frames since it tries to coerce to matrix first
+- should not be used for data frames since it tries to coerce to matrix first
 - `lapply()` is a list apply which acts on a list or vector and returns a list.
 - `sapply()` is a simple lapply (function defaults to returning a vector or matrix when possible)
 
@@ -692,6 +692,8 @@ system.time({
 })
 registerDoSEQ() #register cores to compute sequentially 
 ```
+
+
 ```{r}
 bfi_tbl_long <-  bfi_tbl_group %>% slice(1:1e5)  #2.5 mil (2500k)
 
@@ -731,4 +733,61 @@ benchmark(
 
 ```{r}
 rbindlist(d_gender) %>% as_tibble()
+```
+
+## Factor Anlalysis
+Sometimes factor analysis can take awhile. With parallelization, we can run several factor analyses in parallel if we have the proper input data. 
+```{r}
+rm(list = ls()) #clear the global environment
+glimpse(bfi)
+```
+
+```{r, questions}
+bfi_ls <- list(
+  agree = bfi %>% select(starts_with("A"), -age),
+  conscientious = bfi %>% select(starts_with("C")), 
+  extraversion = bfi %>% select(starts_with("E"), -education),
+  neuroticism = bfi %>% select(starts_with("N")),
+  openness = bfi %>% select(starts_with("O"))
+)
+
+for(i in seq_along(bfi_ls)) {
+  colnames(bfi_ls[[i]]) <- paste0("item", 1:5)
+}
+```
+
+```{r, model fit}
+pacman::p_load(lavaan)
+
+registerDoParallel(detectCores()-1)
+cfa <- foreach (i = 1:5, .multicombine = T, .errorhandling = "pass") %dopar% {
+  lavaan::cfa(model =  "trait =~ item1 + item2 + item3 + item4 + item5", 
+      data = bfi_ls[[i]] #,ordered = paste0("item",1:5)
+  )
+}
+```
+
+```{r, model values}
+models <- foreach(i = 1:length(cfa), .multicombine = T, .errorhandling = "pass") %dopar% {
+  pacman::p_load(lavaan)
+  
+  nobs <- inspect(cfa[[i]], what ='nobs')
+  fm <- fitMeasures(cfa[[i]], c("chisq","df","pvalue","cfi","rmsea","srmr"))
+  maxLoading <- max(lavInspect(cfa[[i]], what='est')$lambda)
+  minLoading <- min(lavInspect(cfa[[i]], what='est')$lambda)
+  
+  as.list(c(names(bfi_ls[i]), nobs, fm, maxLoading, minLoading))
+}
+
+registerDoSEQ()
+```
+
+```{r, model output}
+models_output <-  data.table::rbindlist(models)
+
+colnames(models_output) <-  c('trait','N',"chisq","df","pvalue","cfi","rmsea","srmr",'max_loading','min_loading')
+
+models_output %>% 
+  mutate(across(N:min_loading, as.numeric)) %>% 
+  mutate(across(where(is.numeric), ~round(., digits = 3)))
 ```

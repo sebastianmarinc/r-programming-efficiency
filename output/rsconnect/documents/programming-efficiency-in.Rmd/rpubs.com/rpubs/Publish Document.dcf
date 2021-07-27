@@ -1,0 +1,11 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/794040/9e29cec789a44ffea9c8ef6506c18308
+bundleId: https://api.rpubs.com/api/v1/document/794040/9e29cec789a44ffea9c8ef6506c18308
+url: http://rpubs.com/sebastianmarin/794040
+when: 1627411070.37935
+lastSyncTime: 1627411070.37935
