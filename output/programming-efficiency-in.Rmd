@@ -171,14 +171,12 @@ benchmark(
 )
 ```
 
-## (DRAFT) The *apply family
+## The *apply family
 
 - `apply()` is generic: applies a function to a rows or columns of a matrix (i.e., to dimensions of an array)
 - should not be used for data frames since it tries to coerce to matrix first
 - `lapply()` is a list apply which acts on a list or vector and returns a list.
 - `sapply()` is a simple lapply (function defaults to returning a vector or matrix when possible)
-- `mapply()` is a verified apply (allows the return object type to be prespecified)
-
 
 `apply()` can be used for 2D arrays (i.e., matrix) and 3D arrays
 ```{r}
@@ -232,8 +230,7 @@ sapply(df0, class) #list
 df2[, 1:2]         #data frame
 df2[, 1]           #numeric vector
 ```
-
-`mapply()`
+[Learn more about the apply family here](https://stackoverflow.com/questions/3505701/grouping-functions-tapply-by-aggregate-and-the-apply-family)
 
 
 <br />
@@ -241,7 +238,7 @@ df2[, 1]           #numeric vector
 <br />
 
 
-# Tidyverse, data.table, and base R
+# Tidyverse and data.table
 
 Time spent processing your data at the beginning of projects can save time in the long run. We will walk through various ways to process data efficiently, both in terms of programming and algorithmic. For example, packages in `tidyverse` provide ways to efficiently print results and work with data. Specificaly, the `dplyr` package provides a sufficiently quick yet easy way to process data, and the raw speed of `data.table` is useful for wrangling large data sets. Also, the essential `%>%` (pronounced "pipe") operator can clarify complex wrangling processes. 
 
@@ -443,7 +440,9 @@ Let's assign the new data to a data frame object to compare differences saving a
 ### BFI data
 ```{r}
 set.seed(9201994)
-bfi_df <- as.data.frame( t(anMC::mvrnormArma(1e6, mu, cov_m, 0)) )
+bfi_df <-anMC::mvrnormArma(1e6, mu, cov_m, 0) %>% 
+  t() %>% #transpose
+  as.data.frame() #get data.frame
 names(bfi_df) <- names(bfi_trim)
 ```
 
@@ -569,6 +568,7 @@ benchmark(
 
 bfi_df_summary <- psych::describe(bfi_df, fast=T)
 bfi_df_summary
+
 ```
 We can see that the `psych` package performs the best. 
 
@@ -577,20 +577,20 @@ Let's get summary stats by group and compare performance by function. We will us
 First let's drop the age column. We only want to work with age and eduaction for now. Let's compare performance between subsetting in base R and using `dplyr::select()`.
 ```{r}
 microbenchmark(unit='s',
-               subset(bfi_df, select= -age),
-               bfi_df[-which(names(bfi_df)=="age")] ,
-               bfi_df %>% select(-age)
+               subset = subset(bfi_df, select= -age),
+               base = bfi_df[-which(names(bfi_df)=="age")] ,
+               dplyr = bfi_df %>% select(-age)
 )
 ```
 
 Indexing using brackets is typically faster than `tidyverse`, but the code is not as accessible. This is a common trade off between the `tidyverse` approach and other approaches. For now, let's use bracket notation to get the data set. Then, let's compare the performance of different functions on group comparisons by gender and education.  
 
 ```{r}
-bfi_group <- bfi_df[-which(names(bfi_df)=="age")]
+bfi_group <- bfi_df[-which(names(bfi_df)=="age")] #or bfi_df %>% select(-age)
 
 benchmark(
   psych_describeBy = psych::describeBy(bfi_group[1:25], list(bfi_group$gender, bfi_group$education), mat=T),
-  rstatix_groupby = bfi_group %>% group_by(gender, education) %>% get_summary_stats(), #example of piping a chain of 2 functions
+  rstatix_groupby = bfi_group %>% group_by(gender, education) %>% get_summary_stats(), 
   
   replications = 1,
   columns = c('test', 'elapsed'),
@@ -607,44 +607,124 @@ bfi_summary_stats_group
 ```
 
 
-
-## Item analysis
-
-```{r}
-# dich <- function(variable, categories) {
-#   midpoint <- categories / 2
-#   even <- as.logical(ifelse((midpoint - trunc(midpoint)) == 0,"TRUE","FALSE"))
-#   midpoint <- ifelse(even==T,midpoint, midpoint + .5)
-#   if(even==F) variable[variable==midpoint] <- NA
-#   variable <- ifelse(variable < midpoint, 0, 1)
-# }
-
-# pacman::p_load(CTT)
-# itemAnalysis(bfi_df)
-```
-
-
-```{r}
-# bfi_plot <- pairs.panels(bfi_clean)
-# 
-# benchmark 
-# memoise::memoise(bfi_plot)
-
-```
-
-
 ## Group differences 
+An easy way to get standardized mean differences by group is through by `rstatix::cohen_d()`. We can use `pivot_longer()` to gather a column of items and a column of item scores. We can then calculate *d* between groups by item to understand how the items are functioning by group.  
 
 ```{r}
+bfi_tbl <- as_tibble(bfi_df)  #converting to tbl_df & dropping age
 
+bfi_tbl_group <- bfi_tbl %>%  #grab tbl
+  pivot_longer(               #pivot BFI items 
+    A1:O5, 
+    names_to = "item",        #name gathered column
+    values_to = "score"       #name values columns
+  ) %>%  
+  select(-age, -education) %>% #drop age, edu columns
+  group_by(item)              #group by item
+
+glimpse(bfi_tbl_group)
 
 ```
+
+This is a large data set, with 25 million rows and 3 variables. Since the data are large, we should make a tinkering tibble to test out different functions for calculating *d*. Let's take the first 1000 rows of our data using `dplyr::slice()`. Since the data are grouped, using `dplyr::slice(1:1000)` would take the first 1000 rows *per item* (i.e., the grouping variable). We need to ungroup, slice, and regroup. 
+
+```{r}
+bfi_tbl_group_slice <- 
+  bfi_tbl_group %>% 
+  ungroup(item) %>% 
+  slice(1:1000) %>% 
+  group_by(item)
+
+bfi_tbl_group_slice
+```
+
+The `rstatix` way is easy to read and follows the grouping command, where in the `psych` way we have to add a group to the formula. Also, the output for each is quite different. We need to code further manipulations using `psych`. 
+
+```{r}
+bfi_tbl_group_slice %>% cohens_d(score ~ gender)
+```
+
+```{r}
+bfi_tbl_group_slice %>%
+  cohen.d(score ~ gender + item, data = .) %>% 
+  summary
+```
+
+
+Although `psych` might ~2x faster in terms of raw speed, `rstatix` gives us practically useful output that we would have to valuable time coding using `psych`. However, if you only want the effect size without having to program further data manipulations to get a more comprehensive summary, use `psych`. Make sure to double check the direction groups are compared as well. 
+
+```{r}
+benchmark( 
+  rstatix = bfi_tbl_group_slice %>% 
+    cohens_d(score ~ gender),
+  
+  psych =   bfi_tbl_group_slice %>% 
+    cohen.d(score ~ gender + item, data = .) %>% 
+    summary ,
+  
+  replications = 1, 
+  columns = c("test", "elapsed"),
+  order = "elapsed"
+)
+```
+
+Yet, given 25 million rows, we would need to calculate 25 effect sizes at a sample of 1 million each. To calculate just 1000 cases took ~.5 seconds using `rstatix`. Scaling up to 25 million would take ~208 minutes. This is a prime example of how inefficiencies can compound when scaling up. 
+
+### Parallelization
+A better way to approach the problem is to *parallelize* across all cores. Parallelization is the act of designing a computer program or system to process data in parallel. (You can think of it as hyperthreading across physical cores instead of within cores). Normally, computer programs compute data serially computing one thing at a time. If we parallelize, we can speed up compute by breaking the problem down into smaller pieces to be independently solved simultaneously. 
+
+For this example, we will split the data set into a list, where every element of that list is an item. Then, we can loop through the list using `foreach` and the `%dopar%` operator to run a for loop in parallel. We use 25k rows this time. 
+
+```{r}
+bfi_tbl_long <-  bfi_tbl_group %>% slice(1:1000) #since it's still grouped  we can get the first 1000 rows per item
+
+bfi_ls <- split(
+  bfi_tbl_long[, !names(bfi_tbl_long) == "item" ],  #split into list but remove the item variable
+  bfi_tbl_long$item #split on item variable
+  ) 
+```
+
+
+```{r}
+cl <- makeCluster(detectCores() - 1) #make a cluster but leave one core for other things like email
+registerDoParallel(cl) #register the cluster to run in parallel
+
+d_gender <- 
+  foreach(i=1:25, .multicombine = T) %dopar% { #multicombine=T combines the output into a data frame
+    rstatix::cohens_d(bfi_ls[[i]], score ~ gender) 
+  }
+
+stopImplicitCluster() #stop cluster
+registerDoSEQ() #register cores to compute sequentially 
+```
+
+
+
 
 ## Factor analysis 
 ```{r}
 
 ```
 
+```{r}
+cfa <- 
+  foreach (i = qref, .multicombine = T, .errorhandling = "pass") %dopar% {
+    cfa(model =  "skill =~ tc0 + tc1 + tc2 + tc3 + tc4 + tc5 + tc6 + tc7 + tc8 + tc9", data = ValData[ValData$qref == i,], ordered = c('tc0','tc1','tc2','tc3','tc4','tc5','tc6','tc7','tc8','tc9'))}
+```
+
+```{r, model values}
+models = foreach(i = 1:length(valCFA), .multicombine = T, .errorhandling = "pass") %dopar% {
+    nobs <- inspect(valCFA[[i]], what ='nobs')
+    fm <- fitMeasures(valCFA[[i]], c("chisq.scaled","df.scaled","pvalue.scaled","cfi.scaled","rmsea.scaled","srmr"))
+    maxLoading <- max(lavInspect(valCFA[[i]], what='est')$lambda)
+    minLoading <- min(lavInspect(valCFA[[i]], what='est')$lambda)
+    
+    as.list(c(qref[i], nobs, fm, maxLoading, minLoading))
+}
+```
+
+```{r, model output}
+models_output = rbindlist(models, use.names = F)
 
 ## Regression
 
