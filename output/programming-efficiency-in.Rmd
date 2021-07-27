@@ -11,8 +11,12 @@ output:
 
 ```{r, message=F, warning=F, include = F}
 #setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) #comment out when knitting the notebook
-pacman::p_load(tidyverse, psych, DT, doParallel, data.table, rbenchmark, benchmarkme, microbenchmark, vroom, disk.frame, knitr)
-opts_chunk$set(echo=T,cache=F,prompt=F,tidy=T,comment=NA,message=F,warning=F)
+
+pacman::p_load(
+  tidyverse, psych, DT, doParallel, data.table, rbenchmark, benchmarkme, microbenchmark, vroom, disk.frame, knitr
+)
+
+opts_chunk$set(echo=T, cache=F, prompt=F, tidy=T, comment=NA, message=F, warning=F)
 ``` 
 
 
@@ -42,7 +46,7 @@ What version of R are you using?
 paste0(version$major, ".", version$minor)
 ```
 
-We should have the newest verion of R (`r paste0(version$major, ".", version$minor)`). Having the latest version of R is one of the easiest ways to optimize code. New versions often provide speed boosts for commonly used functions. 
+We should have the newest version of R (`r paste0(version$major, ".", version$minor)`). Having the latest version of R is one of the easiest ways to optimize code. New versions often provide speed boosts for commonly used functions. 
 
 Having a faster computer might also make you more productive. To justify how you can save time using a faster computer, you will need some numbers. We can benchmark the performance of our computer using the [`benchmarkme` package](https://www.r-bloggers.com/2019/01/benchmarkme-new-version/). 
 First, let's see what machine we're working with. 
@@ -54,9 +58,9 @@ paste("CPUs:", benchmarkme::get_cpu()[3]) #how many logical processors do you ha
 ```
 You'll notice that we have more logical cores than physical cores at our disposal. This is due to hyperthreading. 
 
-You can run a set of standardized benchmarks and compare your results to users who have uploaded their performance results. The `benchmark_io` function allows outputs the time it takes to read in data depending on its size (units = megabtyes). Let's get performance for writing and reading a 50MB file and plot the results.
+You can run a set of standardized benchmarks and compare your results to users who have uploaded their performance results. The `benchmark_io` function allows outputs the time it takes to read in data depending on its size (units = megabytes). Let's get performance for writing and reading a 50MB file and plot the results.
 ```{r}
-write_read_bench <- benchmark_io(size=5) #read and write benchmark
+write_read_bench <- benchmark_io( size = 5 ) #read and write benchmark
 plot(write_read_bench) #plot results
 upload_results(write_read_bench) #upload results for benchmark tracking
 ```
@@ -67,6 +71,7 @@ std_bench <- benchmark_std() #benchmark matrix manipulation, calculation
 plot(std_bench) #plot results
 upload_results(std_bench) #upload results for benchmark tracking
 ```
+
 
 ## Benchmarking different read and write functions
 
@@ -81,14 +86,15 @@ There are different ways to write and read data in R. Let's create some data and
 Let's write a function that creates some random data and assign them to a data frame object. 
 
 ```{r}
-get_random_df <- function(n_elements, ncol, min = 0, max = 1, seed = 42) {
-  seed <- set.seed(seed)
-  n <- n_elements #number of elements in a vector
-  x <- runif(n, min = min, max = max) #random vector of real numbers
-  x <- matrix(x, ncol=ncol)
-  x <- as.data.frame(x)
-  return(x)
-}
+get_random_df <- 
+  function(n_elements, ncol, min = 0, max = 1, seed = 42) {
+    seed <- set.seed(seed)
+    n <- n_elements #number of elements in a vector
+    x <- runif(n, min = min, max = max) #random vector of real numbers
+    x <- matrix(x, ncol=ncol)
+    x <- as.data.frame(x)
+    return(x)
+  }
 
 n <- 1e5
 col <- 100
@@ -139,7 +145,7 @@ Overall, if we want to use a .csv file format, `data.table::fread()` and `data.t
 
 Since R uses RAM automatically, we have to be careful with memory allocation. It's important to **vectorize** whenever possible. An efficient method is to instantiate empty vectors and then fill it with values later on.  A good tip is to never grow a vector. 
 
-Below, we see different ways to creating a vector. (This example was taken from section 3.2.1 of [Efficient R Programming](https://csgillespie.github.io/efficientR/).)
+Below, we see different ways to creating a vector. (This example was taken from section 3.2.1 of [Efficient R Programming.](https://csgillespie.github.io/efficientR/)) [More information on for loops.](https://www.datacamp.com/community/tutorials/tutorial-on-loops-in-r)
 
 ```{r}
 # this example was taken from section 3.2.1 of Efficient R Programming (2021)
@@ -153,18 +159,13 @@ method1 = function(n) {
   vec
 }
 
-method2 = function(n) {
-  vec = numeric(n)
-  for (i in seq_len(n))
-    vec[i] = i
-  vec
-}
-
-method3 = function(n) seq_len(n)
+method2 = function(n) seq_len(n)
+```
 
 
+```{r}
 benchmark(
-  method1(n), method2(n), method3(n),
+  method1(n), method2(n),
   
   replications = 100,
   columns = c('test', 'elapsed'),
@@ -172,10 +173,11 @@ benchmark(
 )
 ```
 
+
 ## The *apply family
 
 - `apply()` is generic: applies a function to a rows or columns of a matrix (i.e., to dimensions of an array)
-- should not be used for data frames since it tries to coerce to matrix first
+  - should not be used for data frames since it tries to coerce to matrix first
 - `lapply()` is a list apply which acts on a list or vector and returns a list.
 - `sapply()` is a simple lapply (function defaults to returning a vector or matrix when possible)
 
@@ -202,11 +204,14 @@ data$education <-
   rep(., times = nrow(data)/4 ) %>% #repeat the vector for number of rows in the data divided by 4 since there's 4 levels
   sample(.) #takes a random sample of the vector, thereby randomizing it
 
-data_ls = split(data, data$education) #split the data into a list by edu level
+data_ls <- split(data, data$education) #split the data into a list by edu level
 #lapply(data_ls, sum) #warning if we do this because there's a character vector edu still in the data
 
-data_ls <- lapply(data_ls, function(x) x[-length(x)]) #since we know the position of the education variable is the max number of column, we can call length to get the number of columns and drop the last one
+data_ls <- lapply( data_ls, function(x) x[-length(x)] ) #since we know the position of the education variable is the max number of column, we can call length to get the number of columns and drop the last one
+```
 
+Let's see how lapply works in keeping the top 25% of cases based on a composite score.
+```{r}
 top_group <- function(x) {
   composite <- rowSums(x)
   bin <- quantile(composite)
@@ -221,8 +226,7 @@ data_top %>% as_tibble
 
 ```
 
-`sapply()` is 'simplified' apply that attempts to coerce the result to a multi-dimensional array, *if appropriate*. However, the function is not type consistent and can cause some problems. Below we can see
-
+`sapply()` is 'simplified' apply that attempts to coerce the result to a multi-dimensional array, *if appropriate*. However, the function is not type consistent and can cause some problems. 
 ```{r}
 df2 = data.frame(x = 1:5, y = letters[1:5])
 df0 = data.frame()
@@ -241,7 +245,7 @@ df2[, 1]           #numeric vector
 
 # Tidyverse and data.table
 
-Time spent processing your data at the beginning of projects can save time in the long run. We will walk through various ways to process data efficiently, both in terms of programming and algorithmic. For example, packages in `tidyverse` provide ways to efficiently print results and work with data. Specificaly, the `dplyr` package provides a sufficiently quick yet easy way to process data, and the raw speed of `data.table` is useful for wrangling large data sets. Also, the essential `%>%` (pronounced "pipe") operator can clarify complex wrangling processes. 
+Time spent processing your data at the beginning of projects can save time in the long run. We will walk through various ways to process data efficiently, both in terms of programming and algorithmic. For example, packages in `tidyverse` provide ways to efficiently print results and work with data. Specifically, the `dplyr` package provides a sufficiently quick yet easy way to process data, and the raw speed of `data.table` is useful for wrangling large data sets. Also, the essential `%>%` (pronounced "pipe") operator can clarify complex wrangling processes. 
 
 ## Tidyverse
 One of the many benefits of `tidyverse` is that although this ecosystem of packages might be slower than base R at times, [it makes programming more intuitive/functional](https://tidyverse.tidyverse.org/articles/manifesto.html).
@@ -281,12 +285,15 @@ identical(tbl$char, tbl["char"]) #one vector, one tbl_df
 
 ### `pivot_longer()`
 
-Another efficient way to wrangle data is `tidyr::pivot_longer()`. The function makes "wide" tables "long". 
+Another efficient way to wrangle data is `tidyr::pivot_longer()`. The function makes "wide" tables "long". We're going to make education variables binary and then gather the binaries into a single column. 
 
 ```{r}
 df <- get_random_df(2000, 2, 1, 5) #get random data frame with 2000 elements and 2 columns with values from 1-5
 make_binary <- function(x) sample( rep(c(1,0), each = 500) ) #function that gets vectors of randomly sampled zeros and ones for the number of rows in df
+```
 
+
+```{r}
 df <- df %>% #assigning manipulated df to object "df" (same object)
   rename(score = V1, #renaming to "score"
          performance = V2) %>% #renaming to "performance"
@@ -297,7 +304,10 @@ df <- df %>% #assigning manipulated df to object "df" (same object)
     high_school = make_binary()
   )
 df %>% as_tibble #printing df as a tbl_df
+```
 
+
+```{r}
 df %>% #grab df
   pivot_longer(
     phd:high_school, #variables to gather  
@@ -307,7 +317,8 @@ df %>% #grab df
 df_long #print the tbl_df
 ```
 
-Once we have a long table, we can easily group data for further analysis. 
+Once we have a long table, we can easily group data for further analysis.
+Let's group by the highest education attained and run a simple linear regression by the group variable. We are predicting performance based on some score. 
 ```{r}
 df_long %>% #grab df_long
   group_by(highest_edu) %>% #group by highest education attained
@@ -490,7 +501,7 @@ glimpse(bfi_df) #always check your data after manipulating the data frame before
 ```
 
 
-Earlier, we discovered that RDS and `data.table` functions are the fastest way to save and load data. Saving RDS objects is the most flexible way to write out and read in data wihtout compromising performance, whereas `fwrite()` and `fread` functions were the fastest in terms of raw speed. Let's compare these two approaches using the simulated BFI data. 
+Earlier, we discovered that RDS and `data.table` functions are the fastest way to save and load data. Saving RDS objects is the most flexible way to write out and read in data without compromising performance, whereas `fwrite()` and `fread` functions were the fastest in terms of raw speed. Let's compare these two approaches using the simulated BFI data. 
 
 ```{r}
 benchmark(
@@ -559,7 +570,7 @@ We can see that the `psych` package performs the best.
 
 Let's get summary stats by group and compare performance by function. We will use the pipeable [`rstatix` package](https://rpkgs.datanovia.com/rstatix/]) that implements commonly used statistical tests with great efficiency. It's easy to use and intuitive if you are familiar with the `tidyverse` framework. 
 
-First let's drop the age column. We only want to work with age and eduaction for now. Let's compare performance between subsetting in base R and using `dplyr::select()`.
+First let's drop the age column. We only want to work with age and education for now. Let's compare performance between subsetting in base R and using `dplyr::select()`.
 ```{r}
 microbenchmark(unit='s',
                subset = subset(bfi_df, select= -age),
@@ -674,7 +685,7 @@ system.time({
 
 registerDoParallel(detectCores() - 1) #register the cluster to run in parallel
 system.time({
-    d_gender <- 
+  d_gender <- 
     foreach(i=1:25) %dopar% {
       rstatix::cohens_d(bfi_ls[[i]], score ~ gender) 
     }
@@ -695,7 +706,7 @@ system.time({
 
 registerDoParallel(detectCores() - 1) #register the cluster to run in parallel
 system.time({
-    d_gender <- 
+  d_gender <- 
     foreach(i=1:25) %dopar% {
       rstatix::cohens_d(bfi_ls[[i]], score ~ gender) 
     }
