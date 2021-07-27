@@ -1,6 +1,6 @@
 ---
-title: "programming efficiency in R"
-author: "sebastian marin"
+title: "Programming Efficiency in R"
+author: "Sebastian Marin"
 date: "`r Sys.Date()`"
 output: 
   html_document:
@@ -55,7 +55,7 @@ You'll notice that we have more logical cores than physical cores at our disposa
 
 You can run a set of standardized benchmarks and compare your results to users who have uploaded their performance results. The `benchmark_io` function allows outputs the time it takes to read in data depending on its size (units = megabtyes). Let's get performance for writing and reading a 50MB file and plot the results.
 ```{r}
-write_read_bench <- benchmark_io(size=50) #read and write benchmark
+write_read_bench <- benchmark_io(size=5) #read and write benchmark
 plot(write_read_bench) #plot results
 upload_results(write_read_bench) #upload results for benchmark tracking
 ```
@@ -171,16 +171,16 @@ benchmark(
 )
 ```
 
-## The *apply family
+## (DRAFT) The *apply family
 
-- `apply` is generic: applies a function to a rows or columns of a matrix (i.e., to dimensions of an array)
+- `apply()` is generic: applies a function to a rows or columns of a matrix (i.e., to dimensions of an array)
 - should not be used for data frames since it tries to coerce to matrix first
-- `lapply` is a list apply which acts on a list or vector and returns a list.
-- `sapply` is a simple lapply (function defaults to returning a vector or matrix when possible)
-- `vapply` is a verified apply (allows the return object type to be prespecified)
+- `lapply()` is a list apply which acts on a list or vector and returns a list.
+- `sapply()` is a simple lapply (function defaults to returning a vector or matrix when possible)
+- `mapply()` is a verified apply (allows the return object type to be prespecified)
 
 
-`apply` can be used for 2D arrays (i.e., matrix) and 3D arrays
+`apply()` can be used for 2D arrays (i.e., matrix) and 3D arrays
 ```{r}
 sum_row <- apply(data, 1, sum) #applies sum to rows
 sum_col <- apply(data, 2, sum) #applies sum to rows
@@ -194,12 +194,13 @@ apply(array_3D, 1, sum) #apply sum across 2nd and 3rd dimension
 apply(array_3D, c(1,2), sum) # apply sum across across 3rd dimension
 
 ```
-`lapply` is useful for lists. Say we want to apply a function per level of a factor variable. We can split the data by factor level, store the data as a list object, run the function, and combine the results again using `dplyr::bind_rows()`
+
+`lapply()` is useful for lists. Say we want to apply a function per level of a factor variable. We can split the data by factor level, store the data as a list object, run the function, and combine the results again using `dplyr::bind_rows()`
 
 ```{r}
 data$education <- 
   c("high_school","college", "masters", "phd") %>% #get a vector of edu level
-  rep(., times = nrow(data)/4 ) %>% #repeat the vector for number of rows in the data divided by 4 since there's 4 levels 
+  rep(., times = nrow(data)/4 ) %>% #repeat the vector for number of rows in the data divided by 4 since there's 4 levels
   sample(.) #takes a random sample of the vector, thereby randomizing it
 
 data_ls = split(data, data$education) #split the data into a list by edu level
@@ -217,14 +218,22 @@ top_group <- function(x) {
 
 data_ls_top <- lapply(data_ls, top_group)
 data_top <- bind_rows(data_ls_top , .id = "education")
-data_top
+data_top %>% as_tibble
 
 ```
 
+`sapply()` is 'simplified' apply that attempts to coerce the result to a multi-dimensional array, *if appropriate*. However, the function is not type consistent and can cause some problems. Below we can see
 
 ```{r}
-
+df2 = data.frame(x = 1:5, y = letters[1:5])
+df0 = data.frame()
+sapply(df2, class) #character vector
+sapply(df0, class) #list
+df2[, 1:2]         #data frame
+df2[, 1]           #numeric vector
 ```
+
+`mapply()`
 
 
 <br />
@@ -236,10 +245,138 @@ data_top
 
 Time spent processing your data at the beginning of projects can save time in the long run. We will walk through various ways to process data efficiently, both in terms of programming and algorithmic. For example, packages in `tidyverse` provide ways to efficiently print results and work with data. Specificaly, the `dplyr` package provides a sufficiently quick yet easy way to process data, and the raw speed of `data.table` is useful for wrangling large data sets. Also, the essential `%>%` (pronounced "pipe") operator can clarify complex wrangling processes. 
 
-## Tibbles
+## Tidyverse
+One of the many benefits of `tidyverse` is that although this ecosystem of packages might be slower than base R at times, [it makes programming more intuitive/functional](https://tidyverse.tidyverse.org/articles/manifesto.html).
+
+### `tibble()`
+The tidyverse version of a `data.frame` object is a `tbl_df` from the `tibble` package. It is a class of data frame that makes printing results, subsetting data, and factoring more accessible. 
+
+In printing a `tbl_df`, we can see the class of each variable; we do not when printing a `data.frame`. Also, `tbl_df` prints tidy output to the console, whereas the full `data.frame` object is printed. That is, printing  **tbl** is "tidyer" than **df**. 
+
+```{r}
+tbl <- tibble(
+  num = 1:50, 
+  char = rep(c("x","y"), each = 25)
+) 
+tbl 
+
+df <- data.frame(
+  num = 1:50, 
+  char = rep(c("x","y"), each = 25)
+) 
+df 
+```
 
 
 
+Tibbles are strict about subsetting. If you try to access a variable that does not exist, you’ll get an error.
+
+```{r}
+tbl$letter
+```
+
+Tibbles also delineate [ and [[: [ always returns another tibble/data.frame, [[ always returns a vector.
+```{r}
+identical(tbl$char, tbl[["char"]]) #two vectors
+identical(tbl$char, tbl["char"]) #one vector, one tbl_df
+```
+
+### `pivot_longer()`
+
+Another efficient way to wrangle data is `tidyr::pivot_longer()`. The function makes "wide" tables "long". 
+
+```{r}
+df <- get_random_df(2000, 2, 1, 5) #get random data frame with 2000 elements and 2 columns with values from 1-5
+make_binary <- function(x) sample( rep(c(1,0), each = 500) ) #function that gets vectors of randomly sampled zeros and ones for the number of rows in df
+
+df <- df %>% #assigning manipulated df to object "df" (same object)
+  rename(score = V1, #renaming to "score"
+         performance = V2) %>% #renaming to "performance"
+  mutate(   #mutating df to include new vars 
+    phd = make_binary(),  
+    masters = make_binary(),
+    college = make_binary(), 
+    high_school = make_binary()
+  )
+df %>% as_tibble #printing df as a tbl_df
+
+df %>% #grab df
+  pivot_longer(
+    phd:high_school, #variables to gather  
+    names_to = "highest_edu", #name of gathered column 
+    values_to = "edu" #name of values column 
+  ) -> df_long #assign to a new tbl_df object
+df_long #print the tbl_df
+```
+
+Once we have a long table, we can easily group data for further analysis. 
+```{r}
+df_long %>% #grab df_long
+  group_by(highest_edu) %>% #group by highest education attained
+  do(model = lm(performance ~ score, data = .)) %>% #model simple linear regressions by grouping variable -- do() applies expression to each group that can range in complexity
+  summarize(broom::tidy(model)) #summarize models -- broom is a package that converts statistical objects into tibbles
+```
+
+
+
+### `separate()`
+Another useful function is `separate`, which splits joint variables based on a common delimiter. For example, if a variable holds multiple pieces of information, we can separate the information based on some pattern. 
+
+```{r}
+sep <- tibble(college_grad = "University of Florida - University of Minnesota, Twin Cities")
+sep
+
+separate(sep, col = college_grad, into = c("college", "grad"), sep = "-")
+separate(sep, col = college_grad, into = c("college", "grad"), sep = " - ")
+```
+
+### `dplyr`
+The almighty `dplyr` is essential for working with data. `dplyr` is fast (C++ backend) and intuitive to type. It works well with tidy data, databases, and large data structures. In fact, we have used some `dplyr` functions already in this section. 
+
+`dplyr` was designed to be used with the `%>%` operator in mind. Typically, each data processing step to be represented as a new line, which we have seen before. 
+Below are main `dplyr` functions and with descriptions.
+
+- `filter()`, `slice()`: subsets rows by attribute (filter) or position (slice)
+- `arrange()`: orders data by variables 
+- `select()`; subsets columns 
+- `rename()`: rename columns (assigning new name = old name) 
+- `distinct()`: returns unique, non-duplicated rows
+- `mutate()`: creates new variables on existing data set 
+- `summarize()`: summarizes variables by function and returns a new tbl_df
+- `group_by()`: groups data defined by variables where functions are performed by group
+- ... [and many more](https://dplyr.tidyverse.org/reference/index.html)!
+
+```{r}
+df %>% #grab df
+  group_by(phd, masters) %>%  #group by phd, then within phd group by masters
+  summarize(
+    mean_score = mean(score), #get mean score for groups
+    mean_performance = mean(performance) #get mean performance for groups
+  ) %>% 
+  arrange(phd, -masters) #arrange results in ascending  order for phd (the default) and descending order for masters within the levels of phd
+```
+
+### `across()`
+`across()` is a relatively new and long-awaited function in `dplyr`. The function applies some other function across columns. The equivalent would be using `apply()` on margin 2 (i.e., columns). 
+
+Let's coerce all numeric columns to characters using `dplyr()` and `apply()`, and compare the performance of each.
+
+```{r}
+benchmark(
+  dplyr = df %>% mutate(across(everything(), as.character)), 
+  apply = apply(df, 2, as.character),
+  
+  replications = 100, 
+  columns = c("test","elapsed"),
+  order = "elapsed"
+)
+
+```
+
+
+## data.table
+
+`data.table` is typically thought of as an alternative to `dplyr`. It values speed over intuitive and accessible programming. You can learn more at [datatable-intro](https://cran.r-project.org/web/packages/data.table/vignettes/datatable-intro.html), [datatable-reshape]() and [datatable-reference-semantics](https://cran.r-project.org/web/packages/data.table/vignettes/datatable-reference-semantics.html). 
 
 
 
@@ -496,11 +633,22 @@ bfi_summary_stats_group
 ```
 
 
-## Fast group differences 
+## Group differences 
 
 ```{r}
 
 
 ```
 
-## Fast factor analysis 
+## Factor analysis 
+```{r}
+
+```
+
+
+## Regression
+
+```{r}
+
+```
+
